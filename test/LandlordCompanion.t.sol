@@ -68,17 +68,53 @@ contract LandlordCompanionTest is Test {
     }
     function testRemoveRenter() public {
         vm.expectEmit(true,true,true,true);
-        emit NewRenter(msg.sender, 1, bytes(string("this guy")));
-        companion.addRenter(msg.sender, 1, 500, bytes(string("this guy")));
+        emit NewRenter(msg.sender, 1, name);
+        companion.addRenter(msg.sender, 1, 500, name);
 
         vm.expectEmit(true,false,false,true);
         emit RenterRemoved(renterIds);
-        companion.removeRenter(bytes(string("this guy")));
+        companion.removeRenter(name);
+        (address wallet_, uint16 propCount_, uint256 mrd_, bytes memory identifier_, uint16 internalId_, bool isDeleted_) = companion.getRenter(name);
+        bool res = isDeleted_;
+        assertTrue(res);
+    }
 
+        function testFailRemoveLandlord() public {
+        vm.expectEmit(true,true,true,true);
+        emit NewLandlord(msg.sender, name, landlordIds);
+        companion.addLandlord(msg.sender, paymentTokens, 1, 500, name);
+
+        // (address wallet_, address[] memory paymentTokens_, uint16 propCount_, uint256 mrd_, bytes memory identifier_, uint16 internalId_, bool isDeleted_) = returnLandlord();
+        // bool res = isDeleted_;
+        // assertFalse(res);
+
+        vm.expectEmit(true,false,false,true);
+        emit LandlordRemoved(landlordIds);
+        companion.removeLandlord(name);
+        (address wallet_, address[] memory paymentTokens_, uint16 propCount_, uint256 mrd_, bytes memory identifier_, uint16 internalId_, bool isDeleted_) = companion.getLandlord(name);
+        bool res = isDeleted_;
+        assertFalse(res);
+
+    }
+    function testFailRemoveRenter() public {
+        vm.expectEmit(true,true,true,true);
+        emit NewRenter(msg.sender, 1, name);
+        companion.addRenter(msg.sender, 1, 500, name);
+
+        vm.expectEmit(true,false,false,true);
+        emit RenterRemoved(renterIds);
+        companion.removeRenter(name);
+        (address wallet_, uint16 propCount_, uint256 mrd_, bytes memory identifier_, uint16 internalId_, bool isDeleted_) = companion.getRenter(name);
+        bool res = isDeleted_;
+        assertFalse(res);
     }
 
     function returnLandlord() public view returns (address wallet_, address[] memory paymentTokens_, uint16 propCount_, uint256 mrd_, bytes memory identifier_, uint16 internalId_, bool isDeleted_) {
         (address wallet_, address[] memory paymentTokens_, uint16 propCount_, uint256 mrd_, bytes memory identifier_, uint16 internalId_, bool isDeleted_) = companion.getLandlord(name);
         return (wallet_, paymentTokens_, propCount_, mrd_, identifier_, internalId_, isDeleted_);
+    }
+    function returnRenter() public view returns (address wallet_, uint16 propId_, uint256 mrd_, bytes memory identifier_, uint16 internalId_, bool isDeleted_) {
+        (address wallet_, uint16 propId_, uint256 mrd_, bytes memory identifier_, uint16 internalId_, bool isDeleted_) = companion.getRenter(name);
+        return (wallet_, propId_, mrd_, identifier_, internalId_, isDeleted_);
     }
 }

@@ -34,6 +34,9 @@ contract LandlordCompanion is AccessControl {
     mapping(bytes => Renter) public rentersMap; // id to landlord
 
     mapping(bytes => mapping(address => uint)) public paymentsMap; // paymentsMap[id][PaymentToken] = balance for that token
+    mapping(address => mapping(uint => Renter)) public renterRentOwedMap;
+
+
 
     Landlord[] public landlords;
     Renter[] public renters;
@@ -106,9 +109,20 @@ contract LandlordCompanion is AccessControl {
         emit RenterRemoved(rr.internalId);
     }
 
-    function nada() public {
 
-    }
+    
+
+
+
+
+
+
+
+
+
+
+
+
 
     function getLandlord(bytes calldata _id) public view returns(address wallet_, address[] memory paymentTokens_, uint16 propCount_, uint256 mrd_, bytes memory identifier_, uint16 internalId_, bool isDeleted_){
         Landlord memory ll = landlordsMap[_id];
@@ -126,7 +140,22 @@ contract LandlordCompanion is AccessControl {
         isDeleted_ = _ll.isDeleted;
         return (wallet_, paymentTokens_, propCount_, mrd_, identifier_, internalId_, isDeleted_);
     }
+    
+    function getRenter(bytes calldata _id) public view returns(address wallet_, uint16 propId_, uint256 mrd_, bytes memory identifier_, uint16 internalId_, bool isDeleted_){
+        Renter memory rr = rentersMap[_id];
+        (wallet_, propId_, mrd_, identifier_, internalId_, isDeleted_) = returnRenter(rr);
+        return (wallet_, propId_, mrd_, identifier_, internalId_, isDeleted_);
+    }
 
+    function returnRenter(Renter memory _rr) public pure returns(address wallet_, uint16 propId_, uint256 mrd_, bytes memory identifier_, uint16 internalId_, bool isDeleted_) {
+        wallet_ = _rr.wallet;
+        propId_ = _rr.propertyID;
+        mrd_ = _rr.monthlyRentDue;
+        identifier_ = _rr.identifier;
+        internalId_ = _rr.internalId;
+        isDeleted_ = _rr.isDeleted;
+        return (wallet_, propId_, mrd_, identifier_, internalId_, isDeleted_);
+    }
 
 
 
