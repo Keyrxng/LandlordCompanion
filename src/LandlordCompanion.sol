@@ -2,14 +2,60 @@
 pragma solidity ^0.8.13;
 
 import "../lib/openzeppelin-contracts/contracts/access/AccessControl.sol";
+import "../lib/BokkyPooBahsDateTimeLibrary/contracts/BokkyPooBahsDateTimeContract.sol";
 
-contract LandlordCompanion is AccessControl {
+contract DateTimeHandler is BokkyPooBahsDateTimeContract {
+    uint public immutable genesis_timestamp;
+    uint public daysTill1st;
+    
+
+    struct Genesis_DateTime {
+        uint year;
+        uint month;
+        uint day;
+        uint hour;
+        uint minute;
+        uint second;
+    }
+
+    Genesis_DateTime[] public genesisDay;
+
+    constructor() {
+        genesis_timestamp = block.timestamp;
+        (uint year, uint month, uint day, uint hour, uint minute, uint second) = timestampToDateTime(genesis_timestamp);
+        Genesis_DateTime memory gdt = Genesis_DateTime(year,month,day,hour,minute,second);
+        genesisDay.push(gdt);
+        isValidDate(2022, 7, 1);
+    }
+
+    /// @notice takes genesis date and finds the next 1st of the month to assign payment dates to be uniform and calculated pro-rata
+    function getNext1stFromGenesis() public returns (uint days_){
+        Genesis_DateTime memory gdt = genesisDay[0];
+        uint days_ = _daysFromDate(gdt.year, gdt.month + 1, 1);
+        daysTill1st = days_;
+        return days_;
+    }
+
+    function getNext1st1stFromGenesis() public returns (uint daysTill){
+        Genesis_DateTime memory gdt = genesisDay[0];
+        uint timestamp = timestampFromDate(gdt.year, gdt.month + 1, 1);
+        (uint year, uint month, uint day) = timestampToDate(timestamp);
+        uint daysTill = day;
+        daysTill1st = daysTill;
+        return daysTill;
+    }
+
+}
+
+contract LandlordCompanion is DateTimeHandler, AccessControl {
     bytes32 public constant HANDLER_ROLE = keccak256("HANDLER_ROLE");
 
     address[] public paymentTokens;
 
     uint16 public landlordIds;
     uint16 public renterIds;
+    uint16 public propertyIds;
+
 
     struct Landlord {
         address wallet; // payment wallet
@@ -30,23 +76,35 @@ contract LandlordCompanion is AccessControl {
         bool isDeleted; // if true consider this renter to have been removed/deleted from the system
     }
 
+    struct Property {
+        uint16 internalId; // internal accounting
+        bytes identifier; // personal id
+        uint usdMonthlyCost;
+        address renter;
+        address owner;
+        bytes ownerId; //ownerId
+        
+    }
+
     mapping(bytes => Landlord) public landlordsMap; // id to landlord
-    mapping(bytes => Renter) public rentersMap; // id to landlord
+    mapping(bytes => Renter) public rentersMap; // id to renter
+    mapping(bytes => Property) public PropertiesMap; // OwnerId to property
 
     mapping(bytes => mapping(address => uint)) public paymentsMap; // paymentsMap[id][PaymentToken] = balance for that token
-    mapping(address => mapping(uint => Renter)) public renterRentOwedMap;
+    mapping(address => uint) public renterRentOwedMap; // renterRentOwedMap[msg.sender]
 
 
 
     Landlord[] public landlords;
     Renter[] public renters;
+    Property[] public Properties;
 
     event NewLandlord(address indexed wallet, bytes indexed identifier, uint16 indexed id);
     event LandlordRemoved(uint indexed id);
     event NewRenter(address indexed wallet, uint16 indexed propId, bytes indexed id);
     event RenterRemoved(uint indexed id);
 
-    constructor(address[] memory _tokens) {
+    constructor(address[] memory _tokens) DateTimeHandler(){
         _setupRole(HANDLER_ROLE, msg.sender);
         paymentTokens = _tokens;
         landlordIds = 1;
@@ -67,6 +125,23 @@ contract LandlordCompanion is AccessControl {
         landlordIds ++;
         emit NewLandlord(_wallet, _id, id);
         return ll;
+    }
+
+    function _addProp(bytes calldata _personalId, bytes calldata _ownerId, uint _usdMonthly, address _renter, address _owner) public {
+        uint large = _usdMonthly * 10 ** 18;
+        
+        Property memory pp = Property(propertyIds, _personalId, large, _renter, _owner, _ownerId);
+        propertyIds ++;
+
+        Properties.push(pp);
+        PropertiesMap[_ownerId];
+
+    }
+
+    function addProps(Property[] calldata _props) public {
+        for(uint x=0; x < _props.length; x++){
+            _addProp(_props[x].identifier, _props[x].ownerId, _props[x].usdMonthlyCost, _props[x].renter, _props[x].owner);
+        }
     }
 
     /// @param _wallet wallet to be paid into
@@ -107,6 +182,10 @@ contract LandlordCompanion is AccessControl {
         delete rr.monthlyRentDue;
         delete rr.identifier;
         emit RenterRemoved(rr.internalId);
+    }
+
+    function setProperyRent(uint _amount, uint _id) public {
+
     }
 
 

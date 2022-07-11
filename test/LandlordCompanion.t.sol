@@ -84,10 +84,6 @@ contract LandlordCompanionTest is Test {
         emit NewLandlord(msg.sender, name, landlordIds);
         companion.addLandlord(msg.sender, paymentTokens, 1, 500, name);
 
-        // (address wallet_, address[] memory paymentTokens_, uint16 propCount_, uint256 mrd_, bytes memory identifier_, uint16 internalId_, bool isDeleted_) = returnLandlord();
-        // bool res = isDeleted_;
-        // assertFalse(res);
-
         vm.expectEmit(true,false,false,true);
         emit LandlordRemoved(landlordIds);
         companion.removeLandlord(name);
@@ -109,6 +105,20 @@ contract LandlordCompanionTest is Test {
         assertFalse(res);
     }
 
+    function testDateTimeFind1st1st() public {
+        uint _days = companion.getNext1stFromGenesis();
+        emit log_uint(_days);
+    }
+        function testDateTimeFind1st() public {
+        uint _days = companion.getNext1st1stFromGenesis();
+        emit log_uint(_days);
+    }
+
+    function testAddProps() public {
+        let propDetails = (bytes presonalId, bytes ownerId, uint cost, address renter, address owner);
+         = companion.addProps();
+    }
+
     function returnLandlord() public view returns (address wallet_, address[] memory paymentTokens_, uint16 propCount_, uint256 mrd_, bytes memory identifier_, uint16 internalId_, bool isDeleted_) {
         (address wallet_, address[] memory paymentTokens_, uint16 propCount_, uint256 mrd_, bytes memory identifier_, uint16 internalId_, bool isDeleted_) = companion.getLandlord(name);
         return (wallet_, paymentTokens_, propCount_, mrd_, identifier_, internalId_, isDeleted_);
@@ -117,4 +127,9 @@ contract LandlordCompanionTest is Test {
         (address wallet_, uint16 propId_, uint256 mrd_, bytes memory identifier_, uint16 internalId_, bool isDeleted_) = companion.getRenter(name);
         return (wallet_, propId_, mrd_, identifier_, internalId_, isDeleted_);
     }
+
+    function returnProperty() public view returns(bytes memory presonalId, bytes memory ownerId, uint cost, address renter, address owner) {
+        (bytes memory presonalId, bytes memory ownerId, uint cost, address renter, address owner) = companion.getProperty();w
+    }
+
 }
