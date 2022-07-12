@@ -109,13 +109,13 @@ contract LandlordCompanionTest is Test {
         uint _days = companion.getNext1stFromGenesis();
         emit log_uint(_days);
     }
-        function testDateTimeFind1st() public {
+    function testDateTimeFind1st() public {
         uint _days = companion.getNext1st1stFromGenesis();
         emit log_uint(_days);
     }
 
     function testAddProps() public {
-        let propDetails = (bytes presonalId, bytes ownerId, uint cost, address renter, address owner);
+        (bytes presonalId, bytes ownerId, uint cost, address renter, address owner);
          = companion.addProps();
     }
 

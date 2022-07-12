@@ -2,6 +2,7 @@
 pragma solidity ^0.8.13;
 
 import "../lib/openzeppelin-contracts/contracts/access/AccessControl.sol";
+import "../lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import "../lib/BokkyPooBahsDateTimeLibrary/contracts/BokkyPooBahsDateTimeContract.sol";
 
 contract DateTimeHandler is BokkyPooBahsDateTimeContract {
@@ -71,7 +72,9 @@ contract LandlordCompanion is DateTimeHandler, AccessControl {
         address wallet; // payment wallet
         uint16 propertyID; // owner/rented property count
         uint256 monthlyRentDue; // how much rent due to be paid each month: rent = property.rent
+        uint256 rentBalance; // how much rent is owed in arrears
         bytes identifier; // personal identifier
+        bytes propIdentifer; // prop personal identifier
         uint16 internalId; // internal identifier
         bool isDeleted; // if true consider this renter to have been removed/deleted from the system
     }
@@ -82,17 +85,21 @@ contract LandlordCompanion is DateTimeHandler, AccessControl {
         uint usdMonthlyCost;
         address renter;
         address owner;
-        bytes ownerId; //ownerId
+        bytes ownerId; // ownerId
+        bytes renterId; // renterId
         
     }
 
+    mapping(address => bool) public paymentTypes; // address to is payment token true/false
+
     mapping(bytes => Landlord) public landlordsMap; // id to landlord
     mapping(bytes => Renter) public rentersMap; // id to renter
-    mapping(bytes => Property) public PropertiesMap; // OwnerId to property
+    mapping(bytes => Property) public propertiesMap; // OwnerId to property
 
     mapping(bytes => mapping(address => uint)) public paymentsMap; // paymentsMap[id][PaymentToken] = balance for that token
     mapping(address => uint) public renterRentOwedMap; // renterRentOwedMap[msg.sender]
 
+    mapping(address => mapping(address => uint)) public landlordBalances; // 
 
 
     Landlord[] public landlords;
@@ -103,6 +110,9 @@ contract LandlordCompanion is DateTimeHandler, AccessControl {
     event LandlordRemoved(uint indexed id);
     event NewRenter(address indexed wallet, uint16 indexed propId, bytes indexed id);
     event RenterRemoved(uint indexed id);
+
+    error NotPropertyOwner(address caller, address owner);
+    error NotAnAcceptedToken(address token);
 
     constructor(address[] memory _tokens) DateTimeHandler(){
         _setupRole(HANDLER_ROLE, msg.sender);
@@ -127,20 +137,20 @@ contract LandlordCompanion is DateTimeHandler, AccessControl {
         return ll;
     }
 
-    function _addProp(bytes calldata _personalId, bytes calldata _ownerId, uint _usdMonthly, address _renter, address _owner) public {
+    function _addProp(bytes calldata _personalId, bytes calldata _ownerId, bytes calldata _renterId, uint _usdMonthly, address _renter, address _owner) public {
         uint large = _usdMonthly * 10 ** 18;
         
-        Property memory pp = Property(propertyIds, _personalId, large, _renter, _owner, _ownerId);
+        Property memory pp = Property(propertyIds, _personalId, large, _renter, _owner, _ownerId, _renterId);
         propertyIds ++;
 
         Properties.push(pp);
-        PropertiesMap[_ownerId];
+        propertiesMap[_ownerId];
 
     }
 
     function addProps(Property[] calldata _props) public {
         for(uint x=0; x < _props.length; x++){
-            _addProp(_props[x].identifier, _props[x].ownerId, _props[x].usdMonthlyCost, _props[x].renter, _props[x].owner);
+            _addProp(_props[x].identifier, _props[x].ownerId, _props[x].renterId, _props[x].usdMonthlyCost, _props[x].renter, _props[x].owner);
         }
     }
 
@@ -148,10 +158,10 @@ contract LandlordCompanion is DateTimeHandler, AccessControl {
     /// @param _propId how many properties
     /// @param _mrd monthly rent due from registered properties
     /// @param _id identifier
-        function addRenter(address _wallet, uint16 _propId, uint256 _mrd, bytes calldata _id) external returns(Renter memory){
+        function addRenter(address _wallet, uint16 _propId, uint256 _rentBalance, uint256 _mrd, bytes calldata _id, bytes calldata _propIdentifier) external returns(Renter memory){
         require(_wallet != address(0)  && _propId > 0 && _mrd > 0 && _id.length > 0, "Paramater issue");
         uint16 id = renterIds;
-        Renter memory rr = Renter(_wallet, _propId, _mrd, _id, id, false);
+        Renter memory rr = Renter(_wallet, _propId, _mrd,_rentBalance, _id, id, _propIdentifier, false);
         rentersMap[_id] = rr;
         renters.push(rr);
         renterIds ++;
@@ -184,22 +194,47 @@ contract LandlordCompanion is DateTimeHandler, AccessControl {
         emit RenterRemoved(rr.internalId);
     }
 
-    function setProperyRent(uint _amount, uint _id) public {
+    /// @notice sets the property monthly rent as a solidity safe uint256
+    /// @param _amount monthly usd cost of the property's rent
+    /// @param _id bytes identifier of the property
+    /// @notice modifier vs if() revert NotPropertyOwner()
+    function setProperyRent(uint _amount, bytes calldata _id) public view {
+        Property memory pp = propertiesMap[_id];
+        if(msg.sender != pp.owner) revert NotPropertyOwner({caller: msg.sender, owner: pp.owner});
+        pp.usdMonthlyCost = _amount;
+    }
 
+    /// @notice allows a renter to choose a payment token pass an amount and their own bytes id to pay rent
+    /// @dev reverts if _token isn't in paymentTypes[]
+    /// @param _token the payment token
+    /// @param _amount how much to pay
+    /// @param _id renter personal bytes id
+    function payRent(address _token, uint _amount, bytes calldata _id) public {
+        if(!paymentTypes[_token]) revert NotAnAcceptedToken(_token);
+        Renter storage rr = rentersMap[_id];
+        Landlord storage ll = landlordsMap[rr.propIdentifer];
+        rr.rentBalance -= _amount;
+        landlordBalances[ll.wallet][_token] += _amount;
+        IERC20(_token).transferFrom(msg.sender, ll.wallet, _amount);
+    }
+
+
+    /// @notice withdraws all balances for the landlord from the landlordBalances mapping
+    /// @param _id personal bytes identifier of the landlord
+    /// @dev withdraws whole balance and sends via the registered landlord wallet not the msg.sender so anyone can call right now
+    function landlordWithdrawAll(bytes calldata _id) public {
+        Landlord memory ll = landlordsMap[_id];
+        if(msg.sender != ll.wallet) revert NotPropertyOwner({caller: msg.sender, owner: ll.wallet});
+        address[] memory tokens;
+        for(uint x=0;x<paymentTokens.length; x++){
+            address token = tokens[x];
+            uint bal = landlordBalances[ll.wallet][token];
+            IERC20(token).transfer(ll.wallet, bal);
+        }
     }
 
 
     
-
-
-
-
-
-
-
-
-
-
 
 
 
