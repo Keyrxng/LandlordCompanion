@@ -110,15 +110,23 @@ contract LandlordCompanion is DateTimeHandler, AccessControl {
     event LandlordRemoved(uint indexed id);
     event NewRenter(address indexed wallet, uint16 indexed propId, bytes indexed id);
     event RenterRemoved(uint indexed id);
+    event NewProperty(bytes indexed identifier, bytes indexed owner, bytes indexed renter);
+    event PropertyRemoved(bytes indexed identifier, bytes indexed owner);
+    event RentChanged(bytes indexed propertyId, uint indexed usdMonthlyCost);
+    event RentPaid(bytes indexed propertyId, uint indexed amount);
 
     error NotPropertyOwner(address caller, address owner);
-    error NotAnAcceptedToken(address token);
+    error NotAnAcceptedToken(address token, address[] acceptedTokens);
 
     constructor(address[] memory _tokens) DateTimeHandler(){
         _setupRole(HANDLER_ROLE, msg.sender);
         paymentTokens = _tokens;
+        address z = _tokens[0];
+        address zz = _tokens[1];
         landlordIds = 1;
         renterIds = 1;
+        paymentTypes[z] = true;
+        paymentTypes[zz] = true;
     }
 
     /// @param _wallet wallet to be paid into
@@ -145,23 +153,39 @@ contract LandlordCompanion is DateTimeHandler, AccessControl {
 
         Properties.push(pp);
         propertiesMap[_ownerId];
+        emit NewProperty(_personalId, _ownerId, _renterId);
 
     }
-
     function addProps(Property[] calldata _props) public {
         for(uint x=0; x < _props.length; x++){
             _addProp(_props[x].identifier, _props[x].ownerId, _props[x].renterId, _props[x].usdMonthlyCost, _props[x].renter, _props[x].owner);
         }
     }
 
+    function addPaymentToken(address _token) public {
+        paymentTokens.push(_token);
+        paymentTypes[_token] = true;
+    }
+
     /// @param _wallet wallet to be paid into
     /// @param _propId how many properties
     /// @param _mrd monthly rent due from registered properties
     /// @param _id identifier
+
+    /*
+            address wallet; // payment wallet
+        uint16 propertyID; // owner/rented property count
+        uint256 monthlyRentDue; // how much rent due to be paid each month: rent = property.rent
+        uint256 rentBalance; // how much rent is owed in arrears
+        bytes identifier; // personal identifier
+        bytes propIdentifer; // prop personal identifier
+        uint16 internalId; // internal identifier
+        bool isDeleted; // if true consider this renter to have been removed/deleted from the system
+    */
         function addRenter(address _wallet, uint16 _propId, uint256 _rentBalance, uint256 _mrd, bytes calldata _id, bytes calldata _propIdentifier) external returns(Renter memory){
         require(_wallet != address(0)  && _propId > 0 && _mrd > 0 && _id.length > 0, "Paramater issue");
         uint16 id = renterIds;
-        Renter memory rr = Renter(_wallet, _propId, _mrd,_rentBalance, _id, id, _propIdentifier, false);
+        Renter memory rr = Renter(_wallet, _propId, _mrd,_rentBalance, _id, _propIdentifier, id, false);
         rentersMap[_id] = rr;
         renters.push(rr);
         renterIds ++;
@@ -169,7 +193,7 @@ contract LandlordCompanion is DateTimeHandler, AccessControl {
         return rr;
     }
 
-    /// @dev avoiding deleting from storage deciding to just blanket disable, internalId remains undeleted for internal accounting purposes
+    /// @dev avoiding deleting from memory deciding to just blanket disable, internalId remains undeleted for internal accounting purposes
     /// @param _id the byte represenation of the landlord's personal identifier
     function removeLandlord(bytes calldata _id) public {
         Landlord storage ll = landlordsMap[_id];
@@ -198,10 +222,11 @@ contract LandlordCompanion is DateTimeHandler, AccessControl {
     /// @param _amount monthly usd cost of the property's rent
     /// @param _id bytes identifier of the property
     /// @notice modifier vs if() revert NotPropertyOwner()
-    function setProperyRent(uint _amount, bytes calldata _id) public view {
-        Property memory pp = propertiesMap[_id];
+    function setProperyRent(uint _amount, bytes calldata _id) public {
+        Property storage pp = propertiesMap[_id];
         if(msg.sender != pp.owner) revert NotPropertyOwner({caller: msg.sender, owner: pp.owner});
         pp.usdMonthlyCost = _amount;
+        emit RentChanged(_id, pp.usdMonthlyCost);
     }
 
     /// @notice allows a renter to choose a payment token pass an amount and their own bytes id to pay rent
@@ -210,7 +235,7 @@ contract LandlordCompanion is DateTimeHandler, AccessControl {
     /// @param _amount how much to pay
     /// @param _id renter personal bytes id
     function payRent(address _token, uint _amount, bytes calldata _id) public {
-        if(!paymentTypes[_token]) revert NotAnAcceptedToken(_token);
+        if(paymentTypes[_token] == false) revert NotAnAcceptedToken(_token, paymentTokens);
         Renter storage rr = rentersMap[_id];
         Landlord storage ll = landlordsMap[rr.propIdentifer];
         rr.rentBalance -= _amount;
@@ -255,7 +280,7 @@ contract LandlordCompanion is DateTimeHandler, AccessControl {
         return (wallet_, paymentTokens_, propCount_, mrd_, identifier_, internalId_, isDeleted_);
     }
     
-    function getRenter(bytes calldata _id) public view returns(address wallet_, uint16 propId_, uint256 mrd_, bytes memory identifier_, uint16 internalId_, bool isDeleted_){
+    function getRenter(bytes memory _id) public view returns(address wallet_, uint16 propId_, uint256 mrd_, bytes memory identifier_, uint16 internalId_, bool isDeleted_){
         Renter memory rr = rentersMap[_id];
         (wallet_, propId_, mrd_, identifier_, internalId_, isDeleted_) = returnRenter(rr);
         return (wallet_, propId_, mrd_, identifier_, internalId_, isDeleted_);
@@ -271,6 +296,21 @@ contract LandlordCompanion is DateTimeHandler, AccessControl {
         return (wallet_, propId_, mrd_, identifier_, internalId_, isDeleted_);
     }
 
+    function getProperty(bytes memory _id) public view returns(uint16 internalId, bytes memory identifier, uint usdMonthlyCost, address renter, address owner, bytes memory ownerId, bytes memory renterId) {
+        Property memory pp = propertiesMap[_id];
+        (internalId, identifier, usdMonthlyCost, renter, owner, ownerId, renterId) = returnProperty(pp);
+        return (internalId, identifier, usdMonthlyCost, renter, owner, ownerId, renterId);
+    }
 
+    function returnProperty(Property memory _pp) public pure returns(uint16 internalId_, bytes memory identifier_, uint usdMonthlyCost_, address renter_, address owner_, bytes memory ownerId_, bytes memory renterId_) {
+        internalId_ = _pp.internalId;
+        identifier_ = _pp.identifier;
+        usdMonthlyCost_ = _pp.usdMonthlyCost;
+        renter_ = _pp.renter;
+        owner_ = _pp.owner;
+        ownerId_ = _pp.ownerId;
+        renterId_ = _pp.renterId;
+        return (internalId_, identifier_, usdMonthlyCost_, renter_, owner_, ownerId_, renterId_);
+    }
 
 }
